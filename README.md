@@ -88,7 +88,12 @@ Modern Windows configuration is tuned for battery life and "Snap functionality,"
 
 ## 🚀 Usage Guide
 
-### Method 1: The CLI Way
+**Note:** You may need to enable script execution first:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
+```
+
 Open **PowerShell as Administrator**:
 
 ```powershell
@@ -102,3 +107,4 @@ Open **PowerShell as Administrator**:
 
 # 8. Fix DPC Latency (Safe Mode: Creates Restore Point first)
 .\8_MSIModeEnabler.ps1
+```
