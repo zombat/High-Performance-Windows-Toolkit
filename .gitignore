@@ -1,0 +1,21 @@
+# Windows System Files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# PowerShell / Logs
+*.log
+*.transcript
+*Transcript*
+
+# VS Code Settings (Optional, but good practice)
+.vscode/
+
+# Script Backups (If testing locally)
+Startup_Disabled/
+*.bak
+*.tmp
+
+# Mac System Files (If you edit on a Mac)
+.DS_Store
