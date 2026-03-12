@@ -70,7 +70,28 @@ Modern Windows configuration is tuned for battery life and "Snap functionality,"
   * Some enterprise/OEM drivers intentionally use older versions for stability.
 
 ### The "Deep Cuts" (Advanced Tuning)
-#### `5_NVMeBooster.ps1` (The Server Storage Stack) ⚡
+
+#### Storage Diagnostics & PCIe Health 🔬
+
+#### `5.0_NVMePCIeLaneChecker.ps1` (The NVMe PCIe Inspector)
+* **Function:** Queries the Windows PnP manager to display the current and maximum PCIe lane width and generation for each connected NVMe controller.
+* **Benefit:** Identifies bottlenecked SSDs running at fewer lanes or a lower PCIe generation than their hardware supports.
+* **Safety:** Read-only. Makes no system changes.
+* **Potential Issues:**
+  * Returns no data if drives are running under Intel RST / RAID mode — run `5.1_RAIDtoAHCISwitch.ps1` first.
+  * Some chipset-connected M.2 slots are architecturally limited (e.g. x2 only); a bottleneck may not be fixable without physically relocating the drive to a CPU-direct slot.
+
+#### `5.1_RAIDtoAHCISwitch.ps1` (The Safe AHCI Migration Guide) ⚠️
+* **Function:** Detects Intel RST / RAID mode and prints the exact step-by-step `bcdedit` + BIOS + Safe Mode procedure to switch to AHCI without a blue screen.
+* **Benefit:** Restores raw PCIe visibility for NVMe diagnostics. AHCI mode also allows manufacturer SSD health tools to read drives directly.
+* **Guidance Only:** This script prints instructions. **No commands are executed automatically.** You perform each step yourself.
+* **Potential Issues:**
+  * **Critical: Skipping the Safe Mode boot WILL cause an `INACCESSIBLE_BOOT_DEVICE` blue screen.** All five steps must be followed in order.
+  * Back up critical data and have a Windows recovery USB ready before starting.
+  * Intel RST RAID arrays used for actual striping or mirroring must be dissolved before switching — this will destroy the RAID volume data.
+  * After the switch, WSL distributions or Docker Desktop may lose their volume paths — run `5.4_WSLDockerRecovery.ps1` if so.
+
+#### `5.2_NVMeBooster.ps1` (The Server Storage Stack) ⚡
 * **Unlocks:** Enables the **"Native NVMe"** driver stack ported from **Windows Server 2025**.
 * **Benefit:** Bypasses legacy SCSI translation for ~20% higher IOPS.
 * **Warning:** May break proprietary dashboard tools (Samsung Magician). Use with caution.
@@ -79,6 +100,24 @@ Modern Windows configuration is tuned for battery life and "Snap functionality,"
   * Proprietary NVMe health monitoring tools (Samsung, Intel, WD) may not work.
   * Rollback requires manual registry edits or System Restore.
   * Some enterprise SSDs may use undocumented firmware features incompatible with native stack.
+
+#### `5.3_GPUPCIeLaneChecker.ps1` (The GPU PCIe Inspector)
+* **Function:** Queries the Windows PnP manager to display the current and maximum PCIe lane width and generation for each connected display adapter.
+* **Benefit:** Confirms your GPU is operating at the expected x16 lane configuration and PCIe generation.
+* **Safety:** Read-only. Makes no system changes.
+* **Potential Issues:**
+  * Modern GPUs aggressively downclock their PCIe generation at idle to save power — **run under GPU load** (gaming, rendering, or a benchmark) for accurate maximum-speed readings.
+  * Some integrated or display-only adapters do not expose PCIe properties through the PnP manager.
+
+#### `5.4_WSLDockerRecovery.ps1` (The WSL/Docker Rescue Tool) 🛟
+* **Function:** Recovers WSL distributions and Docker Desktop after a storage controller change invalidates volume identifiers and breaks `BasePath` registry entries.
+* **Strategy:** Two-phase heuristic search — fast breadcrumb check of common paths (Phase 1), falling back to a full recursive drive scan for orphaned `ext4.vhdx` files (Phase 2).
+* **Safety:** Per-distro confirmation prompt before any registry write. Recommends a `reg export` backup before proceeding.
+* **Potential Issues:**
+  * Modifies `HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss`. **Export a backup first:** `reg export "HKCU\Software\Microsoft\Windows\CurrentVersion\Lxss" wsl-backup.reg`
+  * Phase 2 deep search can be slow on large drives with many files.
+  * If a distro's `ext4.vhdx` is genuinely missing (deleted, not just remapped), the script cannot recover it — a `wsl --import` from a backup `.tar` is required.
+  * Docker Desktop's data disk matching uses directory name heuristics; non-standard installation paths may require manual registry editing.
 
 #### `6_MemoryTweak.ps1` (The Server RAM Tuner) 🧠
 * **Function:** Switches memory management from "Desktop Mode" to "Server Mode" (Large System Cache).
@@ -201,9 +240,13 @@ These scripts address fundamental latency issues with minimal risk:
 - `3_BloatwareNeutralizer.ps1` — Generally safe; may break OEM-specific features.
 - `4_SystemHealthAudit.ps1` — Read-only audit; no risk.
 
-**Scripts 5–8 (Advanced Users Only)** 🟡
+**Scripts 5.0–5.4, 6–8 (Advanced Users Only)** 🟡
 These require understanding the tradeoffs; test in non-critical environments first:
-- `5_NVMeBooster.ps1` — May break RAID setups; requires rollback knowledge.
+- `5.0_NVMePCIeLaneChecker.ps1` — Read-only; safe.
+- `5.1_RAIDtoAHCISwitch.ps1` — Guidance only; **follow all steps precisely** — skipping the Safe Mode boot causes BSOD.
+- `5.2_NVMeBooster.ps1` — May break RAID setups; requires rollback knowledge.
+- `5.3_GPUPCIeLaneChecker.ps1` — Read-only; safe.
+- `5.4_WSLDockerRecovery.ps1` — Modifies WSL registry under per-distro confirmation; export `reg export` backup first.
 - `6_MemoryTweak.ps1` — Changes RAM behavior; can affect application performance.
 - `8_MSIModeEnabler.ps1` — Creates restore point first, but boot risk exists on incompatible hardware.
 
@@ -233,7 +276,11 @@ Open **PowerShell as Administrator**:
 .\4_SystemHealthAudit.ps1
 
 # Advanced (Only if you understand the tradeoffs)
-.\5_NVMeBooster.ps1        # Optional: Server-grade NVMe stack
+.\5.0_NVMePCIeLaneChecker.ps1  # Optional: Check NVMe PCIe lane configuration
+.\5.1_RAIDtoAHCISwitch.ps1     # Optional: Safe RAID->AHCI guide (run before 5.2 if on Intel RST)
+.\5.2_NVMeBooster.ps1          # Optional: Server-grade NVMe stack
+.\5.3_GPUPCIeLaneChecker.ps1   # Optional: Check GPU PCIe lane configuration
+# .\5.4_WSLDockerRecovery.ps1  # Recovery only: Run if WSL/Docker breaks after AHCI switch
 .\8_MSIModeEnabler.ps1     # Optional: Fix DPC latency (creates restore point)
 
 # Maintenance (Interactive; requires confirmation)
