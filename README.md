@@ -14,10 +14,9 @@ By downloading and executing these scripts, you acknowledge and agree to the fol
 
 1.  **NO WARRANTY:** This software is provided "AS IS", without warranty of any kind, express or implied.
 2.  **USER RESPONSIBILITY:** You are solely responsible for any damage to your computer hardware, software, data, or business operations.
-3.  **POTENTIAL RISKS:** These scripts modify deep system configurations (Registry, Power Plans, Driver Interrupts). While tested on standard hardware, edge cases exists.
+3.  **POTENTIAL RISKS:** These scripts modify deep system configurations (Registry, Power Plans, Driver Interrupts). While tested on standard hardware, edge cases exist.
     * **Data Loss:** Always backup your critical data before running system tools.
     * **Boot Failures:** Using the "MSI Mode Enabler" on incompatible hardware can cause boot loops (Blue Screens).
-    * **Security:** Disabling CPU Mitigations (`7_MitigationDisable.ps1`) significantly lowers your system's security posture.
 4.  **INDEMNIFICATION:** The author is **NOT** liable for any direct, indirect, incidental, or consequential damages resulting from the use or misuse of this toolkit.
 
 **IF YOU DO NOT AGREE TO THESE TERMS, DO NOT USE THIS SOFTWARE.**
@@ -32,7 +31,7 @@ Modern Windows configuration is tuned for battery life and "Snap functionality,"
 4.  **IRQ Conflicts:** High DPC latency caused by devices fighting for CPU interrupts.
 
 ## 🛠️ The Solution
-10 standalone scripts to audit, repair, and optimize the Windows kernel configuration.
+17 standalone scripts to audit, repair, and optimize the Windows kernel configuration.
 
 ### The Essentials
 #### `1_PowerLatencyFix.ps1` (The "Un-Stutter" Patch)
@@ -119,6 +118,35 @@ Modern Windows configuration is tuned for battery life and "Snap functionality,"
   * If a distro's `ext4.vhdx` is genuinely missing (deleted, not just remapped), the script cannot recover it — a `wsl --import` from a backup `.tar` is required.
   * Docker Desktop's data disk matching uses directory name heuristics; non-standard installation paths may require manual registry editing.
 
+#### Memory, I/O & Search Optimization 🧠
+
+#### `5.5_SuperFetchOptimization.ps1` (The Prefetch Tuner)
+* **Function:** Detects installed RAM and physical disk types (HDD/SSD), then recommends and applies the optimal SysMain/Prefetch mode.
+* **Benefit:** Switches HDD + high-RAM systems to "Boot Only" (Mode 2) to stop background disk thrashing; leaves SSD-primary systems on full caching (Mode 3).
+* **Interactive:** Prompts for confirmation before applying any change and restarting the SysMain service.
+* **Potential Issues:**
+  * Changing the prefetch mode may slightly increase cold-start app load times on HDD systems (trade-off for eliminating background thrashing).
+  * Writes both `EnableSuperfetch` and `EnablePrefetcher` keys for consistency; a future Windows update could reset these.
+
+#### `5.6_PageFileOptimizer.ps1` (The Pagefile Fixer)
+* **Function:** Analyzes RAM and disk types, then replaces the default "System Managed" pagefile with a strict 2048MB/4096MB lock on the fastest available SSD.
+* **Benefit:** Eliminates pagefile placement on mechanical drives and the unpredictable size growth of system-managed configs.
+* **Cleanup:** Scans all fixed drives for orphaned `pagefile.sys` files on non-target drives and schedules a self-removing SYSTEM-level task to delete them on next reboot.
+* **Requires Reboot:** The Windows kernel must release old pagefile locks before the new configuration takes effect.
+* **Potential Issues:**
+  * A reboot is mandatory; changes are not live until after restart.
+  * On systems with less than 8GB RAM, a 2GB–4GB fixed pagefile may be insufficient for crash dumps or memory-heavy workloads.
+  * The cleanup task runs as `NT AUTHORITY\SYSTEM` at startup and unregisters itself after running.
+
+#### `5.7_WindowsIndexOptimize.ps1` (The Search Indexer Auditor)
+* **Function:** Checks the Windows Search service status, flags an oversized `Windows.edb` database (>2GB), and audits which volumes have indexing enabled.
+* **Benefit:** Identifies and optionally disables indexing on mechanical HDDs, eliminating the constant background I/O thrashing that degrades performance on mixed HDD/SSD systems.
+* **Interactive:** Prompts before disabling indexing on any drive; restarts the WSearch service to release file handles after applying changes.
+* **Potential Issues:**
+  * Disabling indexing on an HDD means Windows Search results for files on that drive will become slower or incomplete.
+  * The UI in Drive Properties may lag behind the actual change for a few seconds.
+  * Does not rebuild or compact the `Windows.edb` database — use "Indexing Options" in Control Panel to do that manually if flagged as bloated.
+
 #### `6_MemoryTweak.ps1` (The Server RAM Tuner) 🧠
 * **Function:** Switches memory management from "Desktop Mode" to "Server Mode" (Large System Cache).
 * **Benefit:** Prioritizes file caching for Docker/WSL layers and compiling.
@@ -140,6 +168,14 @@ Modern Windows configuration is tuned for battery life and "Snap functionality,"
   * Not all devices report MSI support correctly; some may hang if forced.
 
 ### Maintenance & Cleanup
+#### `7_TweakUI.ps1` (The Visual Performance Tuner)
+* **Function:** Disables window and taskbar animations while explicitly preserving ClearType font smoothing, thumbnails, and icon shadows.
+* **Benefit:** Eliminates animation overhead for a snappier UI without the "Windows 95" look of the "Best Performance" preset (which also kills font smoothing).
+* **Interactive:** Prompts to restart Explorer immediately to apply changes.
+* **Potential Issues:**
+  * Requires Explorer restart to take effect; any open File Explorer windows will briefly close and reopen.
+  * User-level change only (`HKCU`); does not affect other user accounts on the same machine.
+
 #### `9_WindowsDebloater.ps1` (The Surgical Cleaner) 🧹
 * **Function:** Interactive removal of unwanted apps and features.
 * **Features:** Disables Copilot, Telemetry, and Bing Search. Removes bloatware (Candy Crush, etc.) but **protects** Developer Tools (WSL, Terminal, Winget).
@@ -158,75 +194,6 @@ Modern Windows configuration is tuned for battery life and "Snap functionality,"
   * Some background services (OneDrive, Defender, Network Discovery) may re-enable themselves on Windows Update.
   * Disabling all startup items may break legitimate OEM functionality (e.g., ROG lighting, Alienware Command Center).
 
-### The Danger Zone
-#### `7_MitigationDisable.ps1` (The "Kamikaze" Tweak) ☢️
-
-**EDUCATIONAL PURPOSE ONLY. NOT RECOMMENDED FOR PRODUCTION SYSTEMS.**
-
-* **Function:** Disables Spectre and Meltdown CPU mitigations.
-* **Claimed Benefit:** Recovers ~5-15% CPU performance on syscall-heavy workloads.
-* **Requires Confirmation:** Explicit "I AM INSANE" confirmation to run.
-
-##### What Are Spectre and Meltdown?
-
-In 2018, researchers discovered two families of CPU vulnerabilities that fundamentally changed how we view processor security:
-
-- **Meltdown (CVE-2017-5754):** On Intel and some ARM processors, user-level processes can read arbitrary kernel memory by exploiting the CPU's out-of-order execution engine. An attacker can steal passwords, encryption keys, browser session tokens, and production database credentials directly from memory.
-
-- **Spectre (CVE-2017-5753/5715):** Exploits branch prediction in modern CPUs. An attacker can trick the CPU into speculating down the wrong code path, leaving sensitive data in the CPU cache where it can be read via timing attacks. This works across process boundaries and can leak data from the kernel, other processes, or even virtualized containers.
-
-Both attacks are **remote-exploitable** in many contexts (especially in cloud environments and containers) and have been weaponized in real-world attacks targeting production systems.
-
-##### Why Do Mitigations Exist?
-
-Windows, Linux, and all major OSes patch these vulnerabilities using:
-
-1. **Kernel ASLR + KPTI (Kernel Page Table Isolation):** Separates kernel and user page tables to prevent Meltdown-style reads. Costs ~5% latency on syscall-heavy workloads.
-2. **CPU microcode updates:** Disables branch prediction as needed; adds ~2-10% overhead depending on workload.
-3. **Retpolines & Indirect speculation barriers:** Software-based mitigation for Spectre in the browser/JIT context; browser JavaScript is particularly vulnerable.
-
-**These are not optional patches.** They protect:
-- **Your machine:** From local privilege escalation and data theft.
-- **Your credentials:** Passwords, SSH keys, API tokens in memory are protected.
-- **Your code:** If you're running Docker, WSL, or any containerized workload, Spectre/Meltdown attacks can escape container isolation.
-- **Production systems you access:** If your dev machine is compromised, attackers can pivot to servers you SSH/RDP into.
-
-##### Who Should NOT Run This Script (Everyone Except the Last Group)
-
-- ✗ **Developers running Docker/WSL:** Spectre can escape container isolation. If your container is compromised, attackers can read your host kernel and leap to other containers.
-- ✗ **Anyone handling production credentials/API keys:** These live in memory. Meltdown/Spectre can exfiltrate them without privilege escalation.
-- ✗ **Cloud/remote workers:** Your machine is a pivot point to production systems. Compromising it is worth more than the 5-15% performance gain.
-- ✗ **Anyone sharing a machine (family computer, shared lab hardware):** Mitigations protect you from other users stealing your data.
-- ✗ **Systems with any network access:** A compromised service (browser, remote tool, application bug) can trigger Meltdown/Spectre without your knowledge.
-
-**The ONLY legitimate use case:**
-
-- ✓ **Isolated benchmarking hardware with NO network access, NO browsers running, NO containers, and NO credential storage.** Before using a server for (e.g.) HPC compiling where you have time budget and isolation guarantees.
-
-Even then, re-enable mitigations afterward.
-
-* **Potential Issues (Security):**
-  * **Meltdown risk:** Any process can read kernel memory, including passwords, encryption keys, and session tokens.
-  * **Spectre risk:** Attackers can use timing attacks to extract sensitive data from the CPU cache across process/container boundaries.
-  * **Container escape:** Docker/WSL containers can read the host kernel and other containers' memory.
-  * **No protection from local attacks:** Privilege escalation exploits become much more dangerous.
-  * **Supply-chain risk:** If your dev machine is compromised, attackers gain access to your SSH keys and can pivot to production systems.
-
-* **Potential Issues (System):**
-  * Cannot be undone without a reboot and another script run (or registry manual edit).
-  * If the system is ever compromised, there is no memory protection layer.
-  * Security scanning tools may flag the machine as non-compliant or vulnerable.
-  * May void hardware warranty or violate enterprise security policies.
-
-**BOTTOM LINE:** Do not run this on any system that:
-1. Connects to the internet.
-2. Stores or accesses production credentials.
-3. Runs Docker, WSL, VMs, or any containerized workload.
-4. Is shared with other users.
-5. Is used for development or accessing remote systems.
-
-If you are still considering this, **you are not in the target audience for this toolkit.** The performance improvement is not worth the security risk for 99.99% of use cases.
-
 ---
 
 ## 🚀 Usage Guide
@@ -240,23 +207,24 @@ These scripts address fundamental latency issues with minimal risk:
 - `3_BloatwareNeutralizer.ps1` — Generally safe; may break OEM-specific features.
 - `4_SystemHealthAudit.ps1` — Read-only audit; no risk.
 
-**Scripts 5.0–5.4, 6–8 (Advanced Users Only)** 🟡
+**Scripts 5.0–5.7, 6, 8 (Advanced Users Only)** 🟡
 These require understanding the tradeoffs; test in non-critical environments first:
 - `5.0_NVMePCIeLaneChecker.ps1` — Read-only; safe.
 - `5.1_RAIDtoAHCISwitch.ps1` — Guidance only; **follow all steps precisely** — skipping the Safe Mode boot causes BSOD.
 - `5.2_NVMeBooster.ps1` — May break RAID setups; requires rollback knowledge.
 - `5.3_GPUPCIeLaneChecker.ps1` — Read-only; safe.
 - `5.4_WSLDockerRecovery.ps1` — Modifies WSL registry under per-distro confirmation; export `reg export` backup first.
+- `5.5_SuperFetchOptimization.ps1` — Interactive; low risk. Recommended for HDD + high-RAM systems.
+- `5.6_PageFileOptimizer.ps1` — Requires reboot; changes pagefile placement and size.
+- `5.7_WindowsIndexOptimize.ps1` — Interactive; low risk. Recommended for mixed HDD/SSD systems.
 - `6_MemoryTweak.ps1` — Changes RAM behavior; can affect application performance.
 - `8_MSIModeEnabler.ps1` — Creates restore point first, but boot risk exists on incompatible hardware.
 
-**Scripts 9–10 (Situational)** 🟠
+**Scripts 7, 9–10 (Situational)** 🟠
 Safe but interactive; requires user judgment:
+- `7_TweakUI.ps1` — Safe; user-level visual settings. Requires Explorer restart.
 - `9_WindowsDebloater.ps1` — Requires confirmation for each removal.
 - `10_StartupKiller.ps1` — Requires confirmation for each startup item.
-
-**Script 7 (DO NOT RUN - Educational Only)** 🔴
-- `7_MitigationDisable.ps1` — Security-disabling; only for isolated benchmarking. See "The Danger Zone" section for details. **If you work with Docker, WSL, or production systems, do not use this.**
 
 ---
 
@@ -281,14 +249,16 @@ Open **PowerShell as Administrator**:
 .\5.2_NVMeBooster.ps1          # Optional: Server-grade NVMe stack
 .\5.3_GPUPCIeLaneChecker.ps1   # Optional: Check GPU PCIe lane configuration
 # .\5.4_WSLDockerRecovery.ps1  # Recovery only: Run if WSL/Docker breaks after AHCI switch
-.\8_MSIModeEnabler.ps1     # Optional: Fix DPC latency (creates restore point)
+.\5.5_SuperFetchOptimization.ps1  # Optional: Tune SysMain for your disk/RAM config
+.\5.6_PageFileOptimizer.ps1       # Optional: Lock pagefile to SSD, remove HDD orphans
+.\5.7_WindowsIndexOptimize.ps1    # Optional: Stop Search from thrashing mechanical drives
+.\6_MemoryTweak.ps1               # Optional: Server-mode RAM tuning (16GB+ only)
+.\8_MSIModeEnabler.ps1            # Optional: Fix DPC latency (creates restore point)
 
 # Maintenance (Interactive; requires confirmation)
+.\7_TweakUI.ps1
 .\9_WindowsDebloater.ps1
 .\10_StartupKiller.ps1
-
-# DO NOT RUN (unless you are benchmarking on isolated hardware)
-# .\7_MitigationDisable.ps1
 ```
 
 ---
@@ -296,7 +266,7 @@ Open **PowerShell as Administrator**:
 ## ❓ FAQ
 
 **Q: Can I run all scripts at once?**
-A: No. Run 1–4 first, test stability for a week, then consider 5–8. Always create a System Restore Point before running advanced scripts. Never run script 7 unless you understand the security implications.
+A: No. Run 1–4 first, test stability for a week, then consider the advanced scripts. Always create a System Restore Point before running advanced scripts.
 
 **Q: What if something breaks?**
 A: Scripts 5–8 are designed to be rollback-friendly (via System Restore or registry edits). Script 1 can be reverted by switching back to "Balanced" power plan. Script 3 can be reverted by re-enabling services. See individual script comments for rollback instructions.
@@ -304,5 +274,5 @@ A: Scripts 5–8 are designed to be rollback-friendly (via System Restore or reg
 **Q: Is this safe for production systems?**
 A: No. This toolkit is for personal machines and dev environments only. Do not use on servers, shared systems, or machines accessing production infrastructure.
 
-**Q: Can I disable mitigations (script 7) on my dev machine?**
-A: No. This is explicitly not recommended. Your dev machine is a pivot point to production. Compromising it exposes all your credentials and SSH keys. The performance gain is not worth the security risk.
+**Q: Do I need to run 5.5, 5.6, and 5.7 if I only have SSDs?**
+A: These scripts are most impactful on systems with mechanical HDDs. On all-SSD machines, 5.5 and 5.7 will likely report the configuration is already optimal, and 5.6 is still useful for enforcing a fixed pagefile size and removing orphaned pagefile copies after a drive migration.
